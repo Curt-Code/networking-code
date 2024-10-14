@@ -1,0 +1,134 @@
+My java Code for creating a connection with an SMTP server and sending the message. Was built on top of a skeleton of the code. Doesnt include the envelope and message classes.
+
+
+import java.net.*;
+import java.io.*;
+import java.util.*;
+import java.net.InetAddress;
+
+import java.io.OutputStream;
+import java.io.BufferedOutputStream;
+import java.io.IOException;
+import java.net.Socket;
+
+
+
+/**
+ * Open an SMTP connection to a mailserver and send one mail.
+ *
+ */
+public class SMTPConnection {
+    /* The socket to the server */
+    private Socket connection;
+
+    /* Streams for reading and writing the socket */
+    private BufferedReader fromServer;
+    private DataOutputStream toServer;
+
+    private static final int SMTP_PORT = 25;
+    private static final String CRLF = "\r\n";
+    String localHost = InetAddress.getLocalHost().getHostName();                               //Curtis Hill, 10/12/2024, gets local machine name
+    /* Are we connected? Used in close() to determine what to do. */
+    private boolean isConnected = false;
+
+    /* Create an SMTPConnection object. Create the socket and the
+       associated streams. Initialize SMTP connection. */
+    public SMTPConnection(Envelope envelope) throws IOException {
+
+        connection = new Socket(serverName, Port);                            //Curtis Hill, 10/12/2024, creates socket, sets target connection
+
+        fromServer = new BufferedReader(new InputStreamReader(connection.getInputStream()));          //Curtis Hill, 10/12/2024, live message stream from the server
+        toServer = new DataOutputStream(new BufferedOutputStream(connection.getOutputStream()));       //Curtis Hill, 10/12/2024, live message stream from the host
+
+        if(parseReply(fromServer.readLine()) != 220){                                          //Curtis Hill, 10/9/2024, checks for reply code 220
+            throw new IOException("Incorrect reply code received");
+        }
+
+        isConnected = true;
+
+    }
+
+    /* Send the message. Write the correct SMTP-commands in the
+       correct order. No checking for errors, just throw them to the
+       caller. */
+    public void send(Envelope envelope) throws IOException {                        //Curtis Hill, 10/12/2024, Sends the proper command codes with the information needed.
+
+        sendCommand( "HELO "+ localHost , 250);
+
+        sendCommand("MAIL FROM:<" + envelope.Sender + ">", 250);
+
+        sendCommand("RCPT TO:<" + envelope.Recipient + ">", 250);
+
+        sendCommand("DATA", 354);
+
+        System.out.println("To sever: " + envelope.Message.toString());
+        toServer.writeBytes(envelope.Message.toString());
+
+    }
+
+    /* Close the connection. First, terminate on SMTP level, then
+       close the socket. */
+    public void close() {
+        isConnected = false;
+        try {
+            sendCommand( "QUIT",221 );                                                      //Curtis Hill, 10/10/2024, quit command
+            connection.close();
+        } catch (IOException e) {
+            System.out.println("Unable to close connection: " + e);
+            isConnected = true;
+        }
+    }
+
+    /* Send an SMTP command to the server. Check that the reply code is
+       what is is supposed to be according to RFC 821. */
+    private void sendCommand(String command, int rc) throws IOException {
+
+        String fullMessage = command + CRLF;                                                    //Curtis Hill, 10/12/2024, creates the full command to be sent to server.
+        System.out.println("To server: " + fullMessage);
+
+        toServer.writeBytes(fullMessage);                                                       //Curtis Hill, 10/12/2024, sends message in bytes.
+        toServer.flush();                                                                       //Curtis Hill, 10/12/2024, flushes buffered data into the output stream, program doesn't work without it.
+
+        BufferedReader serverReply = fromServer;                                                //Curtis Hill, 10/12/2024, receives server reply.
+        String replyString = serverReply.readLine();                                            //Curtis Hill, 10/12/2024, next line make sure the reply received is a single line, then turned into a string to prevent the program from breaking.
+        System.out.println("From server: " + replyString + CRLF);
+
+        if(parseReply(replyString) != rc){                                                      //Curtis Hill, 10/10/2024, parses reply, checks for correct response code
+            throw new IOException("Incorrect reply code received");
+        }
+        /* Fill in */
+    }
+
+    /* Parse the reply line from the server. Returns the reply code. */
+    private int parseReply(String reply) throws IOException {                                   //Curtis Hill, 10/12/2024, parses into a reply code
+        List<Integer> intList = new ArrayList<>();
+        StringTokenizer tokenizer = new StringTokenizer(reply);
+
+        while(tokenizer.hasMoreTokens()){                                                       //Curtis Hill, 10/12/2024, makes sure the next token read is not null, iterates through the tokenizer.
+            String token = tokenizer.nextToken();
+
+            if(token.matches("\\d+")){                                                  //Curtis Hill, 10/12/2024, checks if token is a digit using regular expression, if not, skips to next token.
+                try{
+                    int num = Integer.parseInt(token);                                        //Curtis Hill, 10/12/2024, parses known int and adds it to the list.
+                    intList.add(num);
+
+                }catch(NumberFormatException e){
+                    throw new IOException("Digit regular expression parser is not working correctly.");
+                }
+            }
+
+        }
+
+        int replyCode = intList.get(0);                                                     //Curtis Hill, 10/12/2024, reply code should only be in first list node.
+        return replyCode;
+
+    }
+
+    /* Destructor. Closes the connection if something bad happens. */
+    protected void finalize() throws Throwable {
+        if(isConnected) {
+            close();
+        }
+        super.finalize();
+    }
+}
